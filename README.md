@@ -7,3 +7,6 @@ This script simply monitors your battery percentage and writes the output to a l
 
 ### Note regarding battery percentage changes:
 I have a laptop that will sometimes go from ~35% to ~6% without warning, so I coded in a spot that will check for a significant drop in percentage across a 1 minute period. That code starts at line 26 and goes to line 32 if you want to comment that out. If you change the comparison on line 28, you can adjust how severe of a drop is cause for alarm. I chose 5 percent since right now I don't have any workloads that would cause that big of a drop generally speaking, and anything larger than that I want to be made aware of.
+
+## zfs_test.sh
+New script for finding datasets based on a grep filter and a function. This is going to be used in other scripts and I will be testing other functions in this scripts as well. Then after having some example scripts here I'll be making test scripts for fleshing out a full production build for handling ZFS dataset backups.
