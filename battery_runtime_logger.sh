@@ -1,51 +1,64 @@
 #!/bin/bash
 
+# Auto-detect battery device (e.g. BAT1, BAT0)
+BAT_DIR=$(find /sys/class/power_supply/ -maxdepth 1 -name "BAT*" | head -n 1)
+
+if [[ -z "$BAT_DIR" || ! -d "$BAT_DIR" ]]; then
+  echo "Error: No battery found in /sys/class/power_supply/" >&2
+  exit 1
+fi
+
 counter=0
-logfile=/home/trinity/battery.log
-counterfile=/home/trinity/counter
-charge_percentage=0
-old_charge_percentage=0
+logfile="$HOME/battery.log"
+counterfile="$HOME/counter"
 result=0
 
-if test -f $counterfile
-then
-counter=$(cat $counterfile)
+if [[ -f "$counterfile" ]]; then
+  counter=$(cat "$counterfile")
 fi
 
-while [ "$?" -eq "0" ]
-do
+get_capacity() {
+  if [[ -f "$BAT_DIR/capacity" ]]; then
+    cat "$BAT_DIR/capacity"
+  elif [[ -f "$BAT_DIR/charge_now" && -f "$BAT_DIR/charge_full" ]]; then
+    local now full
+    now=$(cat "$BAT_DIR/charge_now")
+    full=$(cat "$BAT_DIR/charge_full")
+    if (( full > 0 )); then
+      echo $(( (now * 100) / full ))
+    else
+      echo 0
+    fi
+  else
+    echo 0
+  fi
+}
 
-# This code works if there isn't a capacity reported via a file.
-#charge_now=$(cat /sys/class/power_supply/BAT0/charge_now)
-#charge_full=$(cat /sys/class/power_supply/BAT0/charge_full)
-#charge_percentage=$(echo "scale=2; $charge_now / $charge_full" | bc)
+old_charge_percentage=$(get_capacity)
 
-# This is for when there is a capacity file available.
-charge_percentage=$(cat /sys/class/power_supply/BAT0/capacity)
+while true; do
+  charge_percentage=$(get_capacity)
 
-# Checking to see if the battery charge is significantly different than the previous value. If so, throw a notification and exit with an error code.
-result=$(($old_charge_percentage - $charge_percentage))
-if [[ $result -gt "5" ]]
-then
-notify-send "Battery charge has dropped significantly!"
-exit 88
-fi
+  # Check if battery charge dropped more than 5% within 1 minute
+  if (( old_charge_percentage > 0 && (old_charge_percentage - charge_percentage) > 5 )); then
+    notify-send -u critical "Battery charge has dropped significantly!" "Dropped from ${old_charge_percentage}% to ${charge_percentage}%"
+    exit 88
+  fi
 
-# Handle various tasks based on current battery percentage.
-# Write the date and percentage to a logfile.
-date | tee -a $logfile
-echo "$charge_percentage%" | tee -a /home/trinity/battery.log
+  # Log timestamp and percentage
+  date | tee -a "$logfile"
+  echo "$charge_percentage%" | tee -a "$logfile"
 
-# If at a percentage divisible by 5, send a notification to the user and note how much approximate screen on time has occurred.
-if [[ "$charge_percentage" == "80" ]] || [[ "$charge_percentage" == "60" ]] || [[ "$charge_percentage" == "40" ]] || [[ "$charge_percentage" == "20" ]]
-then
-notify-send "Battery is at $charge_percentage."
-echo "Running on battery for $counter minutes with the screen on." | tee -a $logfile
-fi
+  # Notification at key battery percentage milestones
+  if [[ "$charge_percentage" == "80" || "$charge_percentage" == "60" || "$charge_percentage" == "40" || "$charge_percentage" == "20" || "$charge_percentage" == "10" ]]; then
+    notify-send "Battery is at ${charge_percentage}%."
+    echo "Running on battery for $counter minutes with the screen on." | tee -a "$logfile"
+  fi
 
-# Take care of variables and sleep for 1 minute.
-counter=$(($counter + 1))
-echo $counter > $counterfile
-old_charge_percentage=$charge_percentage          # This is so I can add comparison to catch if the battery drops more than 5% across a minute of checking.
-sleep 60
+  # Increment counter and save state
+  counter=$((counter + 1))
+  echo "$counter" > "$counterfile"
+  old_charge_percentage=$charge_percentage
+
+  sleep 60
 done
